@@ -1,27 +1,75 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+use Time::HiRes qw(time);
+use Time::Format qw(%time);
 use Test::More;
+use File::Find ();
 
+## Define Variables
+my $to_num = '18582240094';
+my $call_duration;
+my $pcap_path = '/var/spool/pcapsipdump/';
+my $pcap_file;
+my $pcap_time;
+my $start_time;
+my $destination_num;
+my $payload = 'testfile.payload';
+my $wav_file = 'testfile.wav';
+my $raw_file = 'testfile.raw';
 my $qos;
 my $pcap2payload;
-my $payload = 'testfile.payload';
+my $command;
 
-ok(system("sipp -sf ../sipp/uac.xml -inf ../sipp/user.csv sip.phone.com -r 1 -mi 10.128.7.112 -m 1 -s 18582240094 -d 15000") >> 8 eq 0, "SIPp call made");
+#my $raw2wave;
 
-$qos = `tshark -n -r /var/spool/pcapsipdump/20130812/20/20130812-202233-74918-18582240094-1-5720\@127.0.1.1.pcap -q -z rtp,streams`;
+## Get time and use it later to search pcap file
+$pcap_time = $time{'yyyymmddhhmmss'};
+substr($pcap_time, 8, 0) = '-';
+print "$pcap_time \n";
+
+## Run SIPp
+ok(system("sipp -sf ../sipp/uac.xml -inf ../sipp/user.csv sip.phone.com -r 1 -mi 10.128.7.112 -m 1 -s $to_num -d 15000") >> 8 eq 0, "SIPp call made");
+
+## Find the pcap file and save result to $pcap_file
+print "Find the pcap file and save result to \$pcap_file \n";
+$command = "find " . $pcap_path . " -type f -name '*" . $to_num . "*pcap' -mmin -0.3";
+print "$command\n";
+chomp($pcap_file = `$command`);
+print "$pcap_file\n";
+=head
+File::Find::find({wanted => \&wanted}, $pcap_path);
+
+sub wanted {
+        #print "$File::Find::name/$_\n";
+    if ( $_ =~ /^$pcap_time.*pcap\z/s ) {
+        print "function: $File::Find::name\n";
+        $pcap_file = $File::Find::name;
+    }
+}
+=cut
+
+## Analyze the call quality with tshark
+print "Analyze the call quality with tshark \n";
+$command = "tshark -n -r " . $pcap_file . " -q -z rtp,streams";
+print "$command\n";
+$qos = `$command`;
 print "$qos \n";
 
-$pcap2payload = `tshark -n -r /var/spool/pcapsipdump/20130812/20/20130812-202233-74918-18582240094-1-5720\@127.0.1.1.pcap -R rtp -T fields -e rtp.payload | tee $payload`;
+## Convert pcap file into rtp payload
+print "Convert pcap file into rtp payload \n";
+$command = "tshark -n -r " . $pcap_file . " -R rtp -T fields -e rtp.payload | tee " . $payload;
+$pcap2payload = `$command`;
 
+## Convert payload to wav file
 rtp2wav();
 
 
 ## translate the ascii-hex payload from tshark to actual binary data
 sub rtp2wav{
-        open(MYFILE, "<", "testfile.payload")
-                or die "cannot open < testfile.payload: $!";
-        open(OUTFILE, ">", "testfile.raw");
+        open(MYFILE, "<", $payload)
+                or die "cannot open < $payload: $!";
+        open(OUTFILE, ">", $raw_file);
         while(<MYFILE>) {
                 my $line = $_;
                 chop $line;
@@ -33,8 +81,9 @@ sub rtp2wav{
         }
         close(MYFILE);
         close(OUTFILE);
+
 	my $raw2wav;
-	$raw2wav = `sox -t raw -r 8000 -c 1 -U testfile.raw testfile.wav`;
+	$raw2wav = `sox -t raw -r 8000 -c 1 -U $raw_file $wav_file`;
 }
 
 =head
