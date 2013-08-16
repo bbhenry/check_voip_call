@@ -1,19 +1,21 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+use lib "/omd/versions/1.2.3i1.dmmk/lib/nagios/plugins";
+use utils qw($TIMEOUT %ERRORS &print_revision &support);
+use Getopt::Long;
 use Time::HiRes qw(time);
 use Time::Format qw(%time);
 use Test::More;
-use File::Find ();
 
-## Define Variables
+#---[Define Variables]
 my $to_num = '18582240094';
-my $call_duration;
+my $call_duration = '10000';
+my $sip_proxy_ip = 'sip.phone.com';
 my $pcap_path = '/var/spool/pcapsipdump/';
 my $pcap_file;
 my $pcap_time;
 my $start_time;
-my $destination_num;
 my $payload = 'testfile.payload';
 my $wav_file = 'testfile.wav';
 my $raw_file = 'testfile.raw';
@@ -21,22 +23,56 @@ my $qos;
 my $pcap2payload;
 my $command;
 
-#my $raw2wave;
+#---[Nagios output variables]
+my $perf_sipp;
+my $perf_qos;
+my $perf_stt;
 
-## Get time and use it later to search pcap file
+#---[Usage]
+=head
+Getopt::Long::Configure('bundling', 'no_ignore_case');
+    GetOptions
+    ("V|v"    => \&version,
+     "h|help"       => \&help,
+     "w|warning=s"  => \$opt_w,
+     "c|critical=s" => \$opt_c,
+     "P|port=s" => \$opt_p,
+     "U|url=s" => \$opt_U,);
+=cut
+
+#---[Get time and use it later to search pcap file]
 $pcap_time = $time{'yyyymmddhhmmss'};
 substr($pcap_time, 8, 0) = '-';
 print "$pcap_time \n";
 
-## Run SIPp
-ok(system("sipp -sf ../sipp/uac.xml -inf ../sipp/user.csv sip.phone.com -r 1 -mi 10.128.7.112 -m 1 -s $to_num -d 15000") >> 8 eq 0, "SIPp call made");
+#---[Run SIPp]
+system("sipp -sf ../sipp/uac.xml -inf ../sipp/user.csv $sip_proxy_ip -r 1 -mi 10.128.7.112 -m 1 -s $to_num -d $call_duration") >> 8;
 
-## Find the pcap file and save result to $pcap_file
-print "Find the pcap file and save result to \$pcap_file \n";
-$command = "find " . $pcap_path . " -type f -name '*" . $to_num . "*pcap' -mmin -0.3";
-print "$command\n";
+if ($? == -1) {
+	print "SIPp failed to execute: $!\n";
+	exit $ERRORS{'CRITICAL'};
+} elsif ($? & 127) {
+	printf "child died - signal %d, %s coredump\n",
+		($? & 127), ($? & 128) ? 'with' : 'without';
+	exit $ERRORS{'CRITICAL'};
+} elsif ($? >> 8 == 0) {
+} else {
+	printf "child exited with value %d\n", $? >> 8;
+	exit $ERRORS{'CRITICAL'};
+}
+
+#---[Find the pcap file and save result to $pcap_file]
+$command = "find " . $pcap_path . " -type f -name '*" . $to_num . "*pcap' -mmin -" . $call_duration / 50000;
+#print "$command\n";
 chomp($pcap_file = `$command`);
-print "$pcap_file\n";
+
+if (defined $pcap_file) {
+} else {
+	print "pcap file not found\n";
+        exit $ERRORS{'CRITICAL'};
+}
+#print "$pcap_file\n";
+
 =head
 File::Find::find({wanted => \&wanted}, $pcap_path);
 
@@ -49,21 +85,26 @@ sub wanted {
 }
 =cut
 
-## Analyze the call quality with tshark
-print "Analyze the call quality with tshark \n";
+#---[Analyze the call quality with tshark]
+#print "Analyze the call quality with tshark \n";
 $command = "tshark -n -r " . $pcap_file . " -q -z rtp,streams";
 print "$command\n";
 $qos = `$command`;
-print "$qos \n";
+if (defined $qos) {
+} else {
+	print "RTP not being analyzed\n";
+	exit $ERRORS{'CRITICAL'};
+}
 
-## Convert pcap file into rtp payload
-print "Convert pcap file into rtp payload \n";
+#---[Convert pcap file into rtp payload]
+#print "Convert pcap file into rtp payload \n";
 $command = "tshark -n -r " . $pcap_file . " -R rtp -T fields -e rtp.payload | tee " . $payload;
 $pcap2payload = `$command`;
 
-## Convert payload to wav file
+#---[Convert payload to wav file]
 rtp2wav();
 
+#---[Final Output to Nagios] 
 
 ## translate the ascii-hex payload from tshark to actual binary data
 sub rtp2wav{
@@ -86,16 +127,3 @@ sub rtp2wav{
 	$raw2wav = `sox -t raw -r 8000 -c 1 -U $raw_file $wav_file`;
 }
 
-=head
-if ($? == -1) {
-    print "failed to execute: $!\n";
-} elsif ($? & 127) {
-    printf "child died - signal %d, %s coredump\n",
-           ($? & 127), ($? & 128) ? 'with' : 'without';
-} else {
-    printf "child exited with value %d\n", $? >> 8;
-}
-=cut
-#print $sipp_test "\n";
-#printf "$? \n";
-#printf "command exited with value %d\n", $? >> 8;
