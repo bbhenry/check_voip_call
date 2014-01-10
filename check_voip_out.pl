@@ -11,10 +11,10 @@ use POSIX qw(setuid);
 #use Test::More;
 
 #---[Define Variables]
-my $to_num = '18582240094';
+my $to_num = '15555555555';
 my $sipp_path; 
 my $call_duration = '8000';
-my $sip_proxy_ip = 'sip.phone.com';
+my $sip_proxy_ip = 'sip.myprovider.com';
 my $pcap_path = '/var/spool/pcapsipdump/';
 my $output_path = '/var/spool/pcapsipdump/output/';
 my $uac_path = '/opt/omd/sites/monitor_demo/version/lib/nagios/plugins/sipp/';
